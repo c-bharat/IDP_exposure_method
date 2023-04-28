@@ -16,9 +16,7 @@ NECESSARY VARIABLES in input data:
 - date_of_supply: date of dispensing d_n
 - q_D: the quantity dispensed at d_n (this may be recorded differently in different datasets e.g., number of pills v number of box/s - be sure to consider the appropriateness and whether any modifications are needed prior to running the below)
 - Date_of_Supply_index: date of first d_n
-- DateDeath: date of death
-
-Important: in the following code the study end of follow-up/right censoring date was '31DEC2018'D - this should be updated in each project 
+- DeathDate: date of death
 	
 OUTPUT: 
 change history data where each individual's follow-up time is divided into current, recent and formally exposed intervals
@@ -124,7 +122,8 @@ RUN;
 /* Create change history file using the IDP method */ 
 * Note that the macro variable drug_number is a drug group reference number (project_specific and potentially useful when exposure to multiple different medicines are being considered); 
 * Needs to be run for each medicine/medicine class separately - called by &drug_number; 
-%macro exposure_by_drug(drug_number, output);
+* EndDate is the study end of follow-up/right censoring date, and should be a SAS-format date constant e.g. '31DEC2018'D
+%macro exposure_by_drug(drug_number, output, EndDate);
 
 	* Subset dispensing-day data to medicines/dispensings of interest;
 	DATA macro_d_temp; 
@@ -222,17 +221,12 @@ RUN;
 	RUN;
 	PROC PRINT DATA = macro_d1 (OBS=50); RUN; 
 
-	* Merge death dates with PBS data; 
+	* Use supplied DeathDate; 
 	DATA macro_d1;
-		FORMAT cens_date DATE9.; 
-		MERGE macro_d1(IN=keep) 
-			  clean.ndi(KEEP=PPN DeathDate 
-						IN=inndi);
-		BY PPN;
-		IF inndi=1 THEN death=1; 
+		SET macro_d1;
+		IF not missing(DeathDate) THEN death=1;
 				   ELSE death=0;
-		IF keep=1;
-		cens_date = MIN(DeathDate, '31DEC2018'D);
+		cens_date = MIN(DeathDate, &EndDate.);
 	RUN;
 	
 	* Look ahead to get date of next dispensing; 
@@ -268,27 +262,27 @@ RUN;
 		* Currently exposed; 
 		es=1; 	
 		start_date = date_of_supply-1; 
-		end_date = MIN(INTNX('DAY',date_of_supply,e_n,'END'), SEE1-1, DeathDate, '31DEC2018'D);
+		end_date = MIN(INTNX('DAY',date_of_supply,e_n,'END'), SEE1-1, DeathDate, &EndDate.);
 
 		* If post_death then delete ; 
-		IF date_of_supply > MIN(DeathDate, '31DEC2018'D) THEN DO; 
+		IF date_of_supply > MIN(DeathDate, &EndDate.) THEN DO; 
 			OUTPUT post_death; 
 		END; 
 		ELSE DO; 
 			OUTPUT macro_episodes; 
 
 			*Recently exposed; 
-			IF MIN(SEE1-1,DeathDate,'31DEC2018'D) > INTNX('DAY',date_of_supply,e_n,'END') THEN DO; 
+			IF MIN(SEE1-1,DeathDate,&EndDate.) > INTNX('DAY',date_of_supply,e_n,'END') THEN DO; 
 				es=2;
 				start_date = INTNX('DAY',date_of_supply,e_n,'END');  
-				end_date = MIN(INTNX('DAY',date_of_supply,e_n+recent_exp,'END'), SEE1-1, DeathDate, '31DEC2018'D);
+				end_date = MIN(INTNX('DAY',date_of_supply,e_n+recent_exp,'END'), SEE1-1, DeathDate, &EndDate.);
 				OUTPUT macro_episodes; 
 
 				* Formerly exposed; 
-				IF MIN(SEE1-1,DeathDate,'31DEC2018'D) > INTNX('DAY',date_of_supply,e_n+recent_exp,'END') THEN DO; 
+				IF MIN(SEE1-1,DeathDate, &EndDate.) > INTNX('DAY',date_of_supply,e_n+recent_exp,'END') THEN DO; 
 					es=3;
 					start_date = INTNX('DAY',date_of_supply,e_n+recent_exp,'END'); 
-					end_date = MIN(SEE1-1, DeathDate, '31DEC2018'D);
+					end_date = MIN(SEE1-1, DeathDate, &EndDate.);
 					OUTPUT macro_episodes; 
 				END; 
 			END; 
@@ -312,8 +306,8 @@ RUN;
 			episode_dispensing = .; 
 		END; 
 		
-		start_t = start_date - (Date_of_Supply_index365-1); 
-		end_t = end_date - (Date_of_Supply_index365-1); 
+		start_t = start_date - (Date_of_Supply_index-1); 
+		end_t = end_date - (Date_of_Supply_index-1); 
 		
 		BY ppn ep_num;
 		IF first.ep_num THEN ep_st_date = date_of_supply; 
